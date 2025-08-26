@@ -86,3 +86,28 @@ def get_audio_input() -> Optional[Tuple[str, str]]:
         query = recognizer.recognize_google(audio)
         print(f"User said: {query}")
         return query, audio_file_path
+
+
+def ask_text(query: str, rag_chain: Runnable) -> str:
+    """
+    Handles pure textual queries.
+    Detects the language of the query,
+    queries the RAG chain,
+    and returns the answer in the same language.
+    """
+    try:
+        detected_lang = detect(query)
+    except LangDetectException:
+        detected_lang = "en"
+
+    # Run through RAG chain
+    ai_message_response = rag_chain.invoke(query)
+    text_answer = ai_message_response.content if hasattr(ai_message_response, "content") else str(ai_message_response)
+
+    if not text_answer:
+        return "I don’t know."
+
+    wrapped_text = textwrap.fill(text_answer, width=100)
+    print(f"Generated Text Answer:\n{wrapped_text}")
+
+    return text_answer
