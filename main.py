@@ -9,16 +9,19 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain.tools import Tool
 from langchain import hub
 from langchain.memory import ConversationBufferMemory
-from src.helper import setup_hybrid_rag_chain, get_current_weather, get_audio_input, save_speech_only
+from src.helper import setup_hybrid_rag_chain, get_current_weather, get_audio_input, save_speech_only, get_mandi_price
+
+from langchain_google_genai import ChatGoogleGenerativeAI # monthly quota expired for huggingface inference api, so using google-api
 
 load_dotenv()
 
-LLM_REPO_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# LLM_REPO_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 def main() -> None:
   
-    llm_endpoint = HuggingFaceEndpoint(repo_id=LLM_REPO_ID, task="text-generation", max_new_tokens=1024, temperature=0.0)
-    chat_model = ChatHuggingFace(llm=llm_endpoint)
+    # llm_endpoint = HuggingFaceEndpoint(repo_id=LLM_REPO_ID, task="text-generation", max_new_tokens=1024, temperature=0.0)
+    # chat_model = ChatHuggingFace(llm=llm_endpoint)
+    chat_model = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.0)
 
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     search_tool = TavilySearchResults(max_results=3)
@@ -36,7 +39,9 @@ def main() -> None:
     )
 
     weather_tool = get_current_weather
-    tools = [search_tool, agriculture_rag_tool, weather_tool] # new tool add kar sakte hai yahaan
+    mandi_tool = get_mandi_price # we can pass it directly as well, but it is just for the clarity
+
+    tools = [search_tool, agriculture_rag_tool, weather_tool, mandi_tool] # new tool add kar sakte hai yahaan
 
 
     prompt = hub.pull("hwchase17/react-chat") # pre-built prompt from langchain-hub 
