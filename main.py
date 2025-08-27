@@ -1,48 +1,76 @@
 import os
 from dotenv import load_dotenv
+
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-from src.helper import ask_and_speak, setup_hybrid_rag_chain, get_audio_input, ask_text
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain.tools import Tool
+from langchain import hub
+from langchain.memory import ConversationBufferMemory
+from src.helper import setup_hybrid_rag_chain, get_current_weather, get_audio_input, save_speech_only
 
 load_dotenv()
 
 LLM_REPO_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 def main() -> None:
-    llm_endpoint = HuggingFaceEndpoint(
-        repo_id=LLM_REPO_ID,
-        task="text-generation",
-        max_new_tokens=1024,
-        temperature=0.0,
-    )
+  
+    llm_endpoint = HuggingFaceEndpoint(repo_id=LLM_REPO_ID, task="text-generation", max_new_tokens=1024, temperature=0.0)
     chat_model = ChatHuggingFace(llm=llm_endpoint)
 
-    search_tool = TavilySearchResults(max_results=3)
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-    vectorstore = FAISS.load_local(
-        "agri_faiss_index",  
-        embeddings,
-        allow_dangerous_deserialization=True
-    )
-
+    search_tool = TavilySearchResults(max_results=3)
+    vectorstore = FAISS.load_local("agri_faiss_index", embeddings, allow_dangerous_deserialization=True)
     retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
 
     rag_chain = setup_hybrid_rag_chain(chat_model, search_tool, vectorstore_retriever=retriever)
 
-    text_or_speech = input("Type text for text based query \n Type speech for speech based query") # a button in UI can be used when clicked will set text_or_speech = "text" or text_or_speech = "speech"
+    # tools
 
-    if text_or_speech == "text" :
-        user_query = input("Type your query : ")
-        ask_text(user_query, rag_chain)
-    
-    else:
-        audio_input = get_audio_input()
-        if audio_input:
-            user_query, audio_path = audio_input
-            ask_and_speak(user_query, audio_path, rag_chain)
+    agriculture_rag_tool = Tool(
+        name="agriculture_rag_tool",
+        func=rag_chain.invoke,
+        description="Use this tool for any questions about agriculture, farming practices, crop diseases, fertilizers, and information stored in the local knowledge base."
+    )
+
+    weather_tool = get_current_weather
+    tools = [search_tool, agriculture_rag_tool, weather_tool] # new tool add kar sakte hai yahaan
+
+
+    prompt = hub.pull("hwchase17/react-chat") # pre-built prompt from langchain-hub 
+    memory = ConversationBufferMemory(memory_key="chat_history")
+    agent = create_react_agent(chat_model, tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, memory=memory)
+
+    # ----------------------------------------------------- Conversational Loop ---------------------------------------------------------------
+
+    while True:
+        choice = input("\nType 'text', 'speech', or 'exit': ").lower()
+
+        if choice == 'exit':
+            break
+            
+        elif choice == 'text':
+            user_query = input("Type your query: ")
+            if user_query.lower() == 'exit':
+                break
+            if user_query:
+                response = agent_executor.invoke({"input": user_query})
+                print(f"\nAgent: {response['output']}\n")
+
+        elif choice == 'speech':
+            audio_input = get_audio_input()
+            if audio_input:
+                user_query, _ = audio_input
+                if user_query.lower() == 'exit':
+                    break
+                response = agent_executor.invoke({"input": user_query})
+                save_speech_only(response["output"])
+        
+        else:
+            print("Invalid input.")
 
 if __name__ == "__main__":
     main()

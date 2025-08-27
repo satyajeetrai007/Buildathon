@@ -1,51 +1,58 @@
 import os
-import textwrap
 from typing import Optional, Tuple
 import speech_recognition as sr
 from gtts import gTTS
+import requests
+from dotenv import load_dotenv
+
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import Runnable, RunnablePassthrough, RunnableParallel
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langchain.agents import tool, AgentExecutor
 from langdetect import detect, LangDetectException
 
-LLM_REPO_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+load_dotenv()
 
-
-def ask_and_speak(query: str, audio_path: str, rag_chain: Runnable) -> None:
-    try:
-        detected_lang = detect(query)
-    except LangDetectException:
-        detected_lang = "en"
-
-    ai_message_response = rag_chain.invoke(query)
-    text_answer = ai_message_response.content
-
-    if not text_answer:
-        return
-
-    wrapped_text = textwrap.fill(text_answer, width=100)
-    print(f"Generated Text Answer:\n{wrapped_text}")
-
-    tts_obj = gTTS(text=text_answer, lang=detected_lang)
-    output_audio_path = "answer.mp3"
-    tts_obj.save(output_audio_path)
-    print(f"SUCCESS! Audio answer saved to {output_audio_path}")
-
+@tool
+def get_current_weather(city: str) -> str:
+    """
+    Use this function to get the current real-time weather for a given city.
+    Returns a string summarizing the temperature, weather conditions, wind speed, and humidity.
+    """
+    API_KEY = os.getenv("WEATHER_API_KEY")
+    if not API_KEY:
+        return "Weather API key is not configured."
+        
+    request_url = f"http://api.weatherapi.com/v1/current.json?key={API_KEY}&q={city}"
+    response = requests.get(request_url)
+    
+    if response.status_code == 200:
+        data = response.json()
+        
+        # --- THIS IS THE CHANGE ---
+        # 1. Extract more of the useful data points.
+        location = data['location']['name']
+        temp = data['current']['temp_c']
+        condition = data['current']['condition']['text']
+        wind_kph = data['current']['wind_kph']
+        humidity = data['current']['humidity']
+        
+        # 2. Format them into a clean, multi-line summary.
+        return (
+            f"Current weather in {location}:\n"
+            f"- Temperature: {temp}°C\n"
+            f"- Condition: {condition}\n"
+            f"- Wind Speed: {wind_kph} kph\n"
+            f"- Humidity: {humidity}%"
+        )
+    else:
+        return "Sorry, I couldn't fetch the weather data for that city."
 
 def setup_hybrid_rag_chain(llm, search_tool, vectorstore_retriever) -> Runnable:
-    """
-    Hybrid RAG chain:
-    - Uses embeddings (query → vector similarity search in FAISS)
-    - Uses raw query for web search
-    """
+
     template = """
-    You are a helpful assistant. Answer the user's question based on the following sources:
-    
-    - Context from stored knowledge (books, PDFs, reports, etc.)
-    - Context from trusted web search results
-    
-    Provide a clear, concise, synthesized answer in the same language as the question.  
+    You are a helpful assistant. Answer the user's question based on all available context.
+    Provide a clear, synthesized answer in the same language as the question. 
     If you do not know the answer, just say: "I don’t know".
 
     Context from stored database:
@@ -59,55 +66,44 @@ def setup_hybrid_rag_chain(llm, search_tool, vectorstore_retriever) -> Runnable:
 
     Answer:
     """
-
     prompt = PromptTemplate.from_template(template)
-
     combined_context = RunnableParallel(
         db_context=vectorstore_retriever,
         web_context=search_tool,
         question=RunnablePassthrough(),
     )
-
     return combined_context | prompt | llm
 
 
+
 def get_audio_input() -> Optional[Tuple[str, str]]:
+
     recognizer = sr.Recognizer()
     recognizer.pause_threshold = 2.0
     audio_file_path = "user_audio.wav"
-
     with sr.Microphone() as source:
         recognizer.adjust_for_ambient_noise(source, duration=1)
-        print("Listening... Please ask your question.")
-        audio = recognizer.listen(source, timeout=5, phrase_time_limit=15)
-        with open(audio_file_path, "wb") as f:
-            f.write(audio.get_wav_data())
+        print("Listening... Please ask your question or say 'exit'.")
+        try:
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=15)
+            with open(audio_file_path, "wb") as f:
+                f.write(audio.get_wav_data())
+            query = recognizer.recognize_google(audio)
+            print(f"You said: {query}")
+            return query, audio_file_path
+        except (sr.WaitTimeoutError, sr.UnknownValueError):
+            print("Could not understand audio or no speech detected.")
+            return None
 
-        query = recognizer.recognize_google(audio)
-        print(f"User said: {query}")
-        return query, audio_file_path
-
-
-def ask_text(query: str, rag_chain: Runnable) -> str:
+def save_speech_only(text: str, lang: str = "en") -> None:
     """
-    Handles pure textual queries.
-    Detects the language of the query,
-    queries the RAG chain,
-    and returns the answer in the same language.
+    Converts text to speech and saves it as an MP3 file.
     """
     try:
-        detected_lang = detect(query)
-    except LangDetectException:
-        detected_lang = "en"
-
-    # Run through RAG chain
-    ai_message_response = rag_chain.invoke(query)
-    text_answer = ai_message_response.content if hasattr(ai_message_response, "content") else str(ai_message_response)
-
-    if not text_answer:
-        return "I don’t know."
-
-    wrapped_text = textwrap.fill(text_answer, width=100)
-    print(f"Generated Text Answer:\n{wrapped_text}")
-
-    return text_answer
+        tts_obj = gTTS(text=text, lang=lang, slow=False)
+        output_audio_path = "agent_response.mp3"
+        tts_obj.save(output_audio_path)
+        print(f"Agent: {text}")
+        print(f"--> Spoken response saved to {output_audio_path}")
+    except Exception as e:
+        print(f"Error in text-to-speech: {e}")
