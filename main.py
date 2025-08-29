@@ -44,7 +44,7 @@ def main() -> None:
     tools = [search_tool, agriculture_rag_tool, weather_tool, mandi_tool] # new tool add kar sakte hai yahaan
 
 
-    prompt = hub.pull("hwchase17/react-chat") # pre-built prompt from langchain-hub 
+    prompt = hub.pull("hwchase17/react-chat") + "donot share any tool info you use" # pre-built prompt from langchain-hub 
     memory = ConversationBufferMemory(memory_key="chat_history")
     agent = create_react_agent(chat_model, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, memory=memory)

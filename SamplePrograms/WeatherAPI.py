@@ -16,6 +16,7 @@ response = requests.get(request_url)
 
 # --- Check, Parse, and Print ---
 if response.status_code == 200:
+
     data = response.json()
     # ... (the rest of the printing logic is the same)
     print(data)

@@ -30,23 +30,24 @@ def get_current_weather(city: str) -> str:
     
     if response.status_code == 200:
         data = response.json()
+        return data
         
-        # --- THIS IS THE CHANGE ---
-        # 1. Extract more of the useful data points.
-        location = data['location']['name']
-        temp = data['current']['temp_c']
-        condition = data['current']['condition']['text']
-        wind_kph = data['current']['wind_kph']
-        humidity = data['current']['humidity']
+        # # --- THIS IS THE CHANGE ---
+        # # 1. Extract more of the useful data points.
+        # location = data['location']['name']
+        # temp = data['current']['temp_c']
+        # condition = data['current']['condition']['text']
+        # wind_kph = data['current']['wind_kph']
+        # humidity = data['current']['humidity']
         
-        # 2. Format them into a clean, multi-line summary.
-        return (
-            f"Current weather in {location}:\n"
-            f"- Temperature: {temp}°C\n"
-            f"- Condition: {condition}\n"
-            f"- Wind Speed: {wind_kph} kph\n"
-            f"- Humidity: {humidity}%"
-        )
+        # # 2. Format them into a clean, multi-line summary.
+        # return (
+        #     f"Current weather in {location}:\n"
+        #     f"- Temperature: {temp}°C\n"
+        #     f"- Condition: {condition}\n"
+        #     f"- Wind Speed: {wind_kph} kph\n"
+        #     f"- Humidity: {humidity}%"
+        # )
     else:
         return "Sorry, I couldn't fetch the weather data for that city."
 

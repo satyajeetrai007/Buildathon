@@ -1,65 +1,95 @@
-import requests
-import json
-from datetime import datetime
 import os
+import json
+import requests
 from dotenv import load_dotenv
-load_dotenv()
 
-def get_mandi_price(api_key: str, commodity: str, state: str, district: str, date: str) -> dict | None:
+# We import @tool so you can paste your function directly without modification
+from langchain.agents import tool
+
+# --- Paste the function you want to test here ---
+@tool
+def get_mandi_price(tool_input: str | dict) -> str:
     """
-    Fetches market price for a commodity on a specific date using the data.gov.in API.
+    Fetches the daily market (mandi) price for an agricultural commodity.
+    The input to this tool MUST be a JSON dictionary with the keys 'commodity', 
+    'state', 'district', and 'date'. The date MUST be in DD/MM/YYYY format.
     """
-    base_url = "https://api.data.gov.in/resource/35985678-0d79-46b4-9ed6-6f13308a1d24"
+    try:
+        if isinstance(tool_input, dict):
+            input_dict = tool_input
+        else:
+            clean_str = tool_input.strip().lstrip("```json").rstrip("```").strip()
+            input_dict = json.loads(clean_str)
+    except (json.JSONDecodeError, AttributeError):
+        return "Error: The tool received a malformed input. Please ensure the Action Input is a valid JSON dictionary."
+
+    commodity = input_dict.get("commodity")
+    state = input_dict.get("state")
+    district = input_dict.get("district")
+    date = input_dict.get("date")
+
+    if not all([commodity, state, district, date]):
+        return "Error: The input dictionary is missing required keys. It must contain 'commodity', 'state', 'district', and 'date'."
+
+    # Corrected environment variable name to match previous setup
+    api_key = os.getenv("DATA_GOV_API_KEY") 
+    if not api_key:
+        return "ERROR: The data.gov.in API key is not configured."
     
+    base_url = "https://api.data.gov.in/resource/35985678-0d79-46b4-9ed6-6f13308a1d24"
     params = {
-        "api-key": api_key,
-        "format": "json",
-        "limit": 10,
-        "filters[State]": state,
-        "filters[District]": district,
-        "filters[Commodity]": commodity,
-        "filters[Arrival_Date]": date # Use the date passed to the function
+        "api-key": api_key, "format": "json", "limit": 5,
+        "filters[State]": state, "filters[District]": district,
+        "filters[Commodity]": commodity, "filters[Arrival_Date]": date
     }
-
+    
     try:
         response = requests.get(base_url, params=params)
         if response.status_code == 200:
-            print("SUCCESS: API request was successful.")
-            return response.json()
+            data = response.json()
+            if data and 'records' in data and data['records']:
+                records = data['records']
+                summary = f"Found {len(records)} price records for {commodity} in {district} on {date}:\n"
+                for record in records:
+                    summary += (
+                        f"- Market: {record.get('Market', 'N/A')}, "
+                        f"Variety: {record.get('Variety', 'N/A')}, "
+                        f"Min Price: {record.get('Min_x0020_Price', 'N/A')}, "
+                        f"Max Price: {record.get('Max_x0020_Price', 'N/A')}\n"
+                    )
+                return summary
+            else:
+                return f"No market price data found for {commodity} in {district} on {date}."
         else:
-            print(f"ERROR: API returned status code {response.status_code}")
-            print(f"Response: {response.text}")
-            return None
+            return f"Error: API returned status code {response.status_code}. Response: {response.text}"
     except requests.exceptions.RequestException as e:
-        print(f"CONNECTION ERROR: {e}")
-        return None
+        return f"Error connecting to the API: {e}"
 
-# --- Main execution block ---
+# --- This block will run when you execute the script ---
 if __name__ == "__main__":
-    # 1. IMPORTANT: Replace this with your personal key from data.gov.in
-    YOUR_PERSONAL_API_KEY = os.getenv("MARKET_PRICE_API_KEY")
-
-    # 2. TEST with a past date to ensure data exists
-    test_date = "25/08/2025" 
-
-    test_commodity = "Onion"
-    test_state = "Maharashtra"
-    test_district = "Pune"
+    load_dotenv()
+    print("--- Starting Tool Test ---")
     
-    print(f"Fetching price for {test_commodity} in {test_district}, {test_state} on {test_date}...")
-    
-    price_data = get_mandi_price(
-        api_key=YOUR_PERSONAL_API_KEY,
-        commodity=test_commodity,
-        state=test_state,
-        district=test_district,
-        date=test_date # Pass the test date to the function
-    )
+    # Define a sample input to test with
+    test_date = "28/08/2025" # Use a date you know has data
 
-    if price_data and 'records' in price_data and price_data['records']:
-        print("\n--- Market Price Data ---")
-        print(json.dumps(price_data['records'], indent=2))
-    elif price_data and 'records' in price_data:
-        print(f"\n--- No records found for {test_date}. Try an even earlier date. ---")
-    else:
-        print("\n--- Failed to retrieve data. ---")
+    # Test Case 1: Input is a clean JSON string (like the agent should provide)
+    print("\n[TEST 1: Clean JSON string]")
+    json_string_input = f'{{"commodity": "Onion", "state": "Maharashtra", "district": "Pune", "date": "{test_date}"}}'
+    result1 = get_mandi_price(json_string_input)
+    print("Result:\n", result1)
+    print("-" * 20)
+
+    # Test Case 2: Input is a "messy" string with markdown
+    print("\n[TEST 2: Messy string with markdown backticks]")
+    messy_string_input = f'`{{"commodity": "Onion", "state": "Maharashtra", "district": "Pune", "date": "{test_date}"}}`'
+    result2 = get_mandi_price(messy_string_input)
+    print("Result:\n", result2)
+    print("-" * 20)
+
+    # Test Case 3: Input is an invalid string
+    print("\n[TEST 3: Invalid string that is not JSON]")
+    invalid_string_input = "commodity=Onion, state=Maharashtra"
+    result3 = get_mandi_price(invalid_string_input)
+    print("Result:\n", result3)
+    print("-" * 20)
