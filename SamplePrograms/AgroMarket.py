@@ -71,7 +71,7 @@ if __name__ == "__main__":
     print("--- Starting Tool Test ---")
     
     # Define a sample input to test with
-    test_date = "28/08/2025" # Use a date you know has data
+    test_date = "28/08/2025"
 
     # Test Case 1: Input is a clean JSON string (like the agent should provide)
     print("\n[TEST 1: Clean JSON string]")

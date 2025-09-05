@@ -5,15 +5,59 @@ from gtts import gTTS
 import requests
 from dotenv import load_dotenv
 from langchain.agents import tool
+from typing import Union
 from pydantic import BaseModel, Field
 
+from datetime import datetime, timedelta
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import Runnable, RunnablePassthrough, RunnableParallel
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain.agents import tool, AgentExecutor
 from langdetect import detect, LangDetectException
 import json
+import google.generativeai as genai
+from langchain.tools import tool
+from PIL import Image
 load_dotenv()
+API_KEY = os.getenv("GOOGLE_API_KEY")
+if not API_KEY:
+    raise ValueError("❌ GOOGLE_API_KEY not found in .env")
+
+genai.configure(api_key=API_KEY)
+@tool
+def crop_disease_detection(image_path: str) -> str:
+    """
+    Detects plant disease from a local image using Gemini 2.5-pro.
+
+    Args:
+        image_path (str): Path to the leaf image.
+
+    Returns:
+        str: Disease name, suggested cure, and recommended pesticides.
+    """
+    if not os.path.exists(image_path):
+        return f"❌ Error: Image path '{image_path}' does not exist."
+
+    try:
+        # Open image
+        image = Image.open(image_path)
+
+        # Prompt for Gemini
+
+        # Call Gemini 2.5-pro
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        prompt = (
+    "Identify the plant disease in this image. "
+    "Return a JSON with the following keys: "
+    "`disease`, `possible_cure`, `recommended_pesticides`. "
+    "If no disease is detected, set `disease` to 'Healthy'."
+)
+
+        response = model.generate_content([prompt, image])
+        return response.text
+
+    except Exception as e:
+        return f"⚠️ Error during disease detection: {str(e)}"
 
 @tool
 def get_current_weather(city: str) -> str:
@@ -53,7 +97,7 @@ def get_current_weather(city: str) -> str:
 
 
 @tool
-def get_mandi_price(tool_input: str | dict) -> str:
+def get_mandi_price(tool_input: Union[str, dict]) -> str:
     """
     Fetches the daily market (mandi) price for an agricultural commodity.
     The input to this tool MUST be a JSON dictionary with the keys 'commodity', 
@@ -176,3 +220,34 @@ def save_speech_only(text: str, lang: str = "en") -> None:
         print(f"--> Spoken response saved to {output_audio_path}")
     except Exception as e:
         print(f"Error in text-to-speech: {e}")
+
+
+
+@tool("get_current_datetime", return_direct=True)
+def get_current_datetime(query: str) -> str:
+    """
+    Use this tool only when user asks for current date or what is the day tomorrow etc only.
+    Get the current date and time.
+    You can also ask for relative dates like 'tomorrow' or '5 days later'.
+    """
+    now = datetime.now()
+
+    query = query.lower().strip()
+    if "tomorrow" in query:
+        return (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    elif "yesterday" in query:
+        return (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    elif "days" in query:
+        try:
+            num = int(query.split()[0])  # e.g., "5 days later"
+            if "later" in query or "after" in query:
+                return (now + timedelta(days=num)).strftime("%Y-%m-%d %H:%M:%S")
+            elif "before" in query or "ago" in query:
+                return (now - timedelta(days=num)).strftime("%Y-%m-%d %H:%M:%S")
+        except:
+            pass
+
+    # default: return current
+    return now.strftime("%Y-%m-%d %H:%M:%S")
+
+
